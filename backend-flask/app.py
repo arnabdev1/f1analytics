@@ -1,20 +1,24 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from pymongo import MongoClient
-import os
+from db import users
+from ml_model import fetch_results, get_constructor_rankings
 
 app = Flask(__name__)
-CORS(app)  # allow cross-origin requests
+CORS(app)
 
-# MongoDB setup
-MONGO_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017/")
-client = MongoClient(MONGO_URI)
-db = client["f1springai"]  # change to your DB name
-users = db["users"]
+_DATA = None
+
+def get_data():
+    global _DATA
+    if _DATA is None:
+        _DATA = fetch_results(2001, 2024)
+    return _DATA
+
 
 @app.route("/")
 def home():
     return jsonify({"message": "Hello from Flask!"})
+
 
 @app.route("/signup", methods=["POST"])
 def signup():
@@ -27,6 +31,7 @@ def signup():
 
     users.insert_one({"email": email, "password": password})
     return jsonify({"success": True, "message": "Signup successful"})
+
 
 @app.route("/login", methods=["POST"])
 def login():
@@ -42,5 +47,23 @@ def login():
 
     return jsonify({"success": True, "message": "Login successful"})
 
+
+@app.route("/ml/constructor-rankings", methods=["GET"])
+def constructor_rankings():
+    try:
+        df = get_data()
+        year = int(request.args.get("year", df["year"].max()))
+        result = get_constructor_rankings(df, year)
+
+        return jsonify({
+            "success": True,
+            "year": result["year"],
+            "model_stats": result["model_stats"],
+            "rankings": result["constructor_rankings"].to_dict(orient="records")
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=True, host="0.0.0.0", port=5050)
